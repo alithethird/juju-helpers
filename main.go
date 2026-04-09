@@ -28,10 +28,17 @@ func usage() {
 
 Commands:
   seed       Add juju aliases to ~/.bashrc and ~/.zshrc (idempotent)
-  nuke-all [--include-current]   Destroy all models whose names start with test- or jubilant-
-                                 (skips the current model by default)
-`)
+  nuke-all [--include-current]
+             Destroy all models whose names start with test- or jubilant-.
+             Skips the currently active model by default.`)
 	os.Exit(1)
+}
+
+func nukeAllUsage() {
+	fmt.Println(`Usage: juju-helpers nuke-all [--include-current]
+
+Destroy all juju models whose names start with test- or jubilant-.
+The currently active model is skipped unless --include-current is given.`)
 }
 
 func main() {
@@ -46,7 +53,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "nuke-all":
-		if err := nukeAll(); err != nil {
+		if err := nukeAll(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "nuke-all: %v\n", err)
 			os.Exit(1)
 		}
@@ -55,79 +62,48 @@ func main() {
 	}
 }
 
-// seedShells writes the alias block into ~/.bashrc and ~/.zshrc, replacing any
-// existing managed block so the operation is idempotent.
-func seedShells() error {
-	home, err := os.UserHomeDir()
+// nukeAllArgs holds parsed flags for the nuke-all command.
+type nukeAllArgs struct {
+	includeCurrent bool
+}
+
+// parseNukeAllArgs parses flags for nuke-all. Returns (nil, true) when --help
+// was requested. Returns an error for any unrecognised flag.
+func parseNukeAllArgs(args []string) (*nukeAllArgs, bool, error) {
+	result := &nukeAllArgs{}
+	for _, arg := range args {
+		switch arg {
+		case "--help", "-h":
+			return nil, true, nil
+		case "--include-current":
+			result.includeCurrent = true
+		default:
+			return nil, false, fmt.Errorf("unknown flag %q", arg)
+		}
+	}
+	return result, false, nil
+}
+
+// nukeAll is the entry point for the nuke-all command.
+func nukeAll(args []string) error {
+	parsed, showHelp, err := parseNukeAllArgs(args)
 	if err != nil {
+		nukeAllUsage()
 		return err
 	}
-
-	targets := []string{
-		filepath.Join(home, ".bashrc"),
-		filepath.Join(home, ".zshrc"),
+	if showHelp {
+		nukeAllUsage()
+		return nil
 	}
 
-	for _, path := range targets {
-		if err := seedFile(path); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		fmt.Printf("seeded %s\n", path)
-	}
-	return nil
-}
-
-func seedFile(path string) error {
-	// Read existing content (file may not exist yet).
-	var existing []byte
-	existing, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	updated := replaceOrAppend(string(existing), aliasBlock)
-	return os.WriteFile(path, []byte(updated), 0644)
-}
-
-// replaceOrAppend removes any existing managed block and appends the new one.
-func replaceOrAppend(content, block string) string {
-	lines := strings.Split(content, "\n")
-	var out []string
-	skip := false
-	for _, line := range lines {
-		if strings.TrimSpace(line) == blockStart {
-			skip = true
-		}
-		if !skip {
-			out = append(out, line)
-		}
-		if skip && strings.TrimSpace(line) == blockEnd {
-			skip = false
-		}
-	}
-	result := strings.Join(out, "\n")
-	// Ensure the file ends with a newline before appending.
-	result = strings.TrimRight(result, "\n")
-	result += "\n" + block
-	return result
-}
-
-// nukeAll finds all models starting with test- or jubilant- and destroys them.
-// By default the currently active model is skipped; pass --include-current to override.
-func nukeAll() error {
-	includeCurrent := false
-	for _, arg := range os.Args[2:] {
-		if arg == "--include-current" {
-			includeCurrent = true
-		}
-	}
-
-	models, current, err := listTargetModels()
+	modelsOutput, err := exec.Command("juju", "models").Output()
 	if err != nil {
-		return err
+		return fmt.Errorf("juju models: %w", err)
 	}
 
-	if !includeCurrent && current != "" {
+	models, current := parseModelsOutput(string(modelsOutput))
+
+	if !parsed.includeCurrent && current != "" {
 		var filtered []string
 		for _, m := range models {
 			if m != current {
@@ -182,18 +158,12 @@ func nukeAll() error {
 	return nil
 }
 
-// listTargetModels returns model names (without controller prefix or trailing *)
-// that start with test- or jubilant-, plus the name of the currently active model.
-func listTargetModels() (models []string, current string, err error) {
-	out, err := exec.Command("juju", "models").Output()
-	if err != nil {
-		return nil, "", fmt.Errorf("juju models: %w", err)
-	}
-
-	scanner := bufio.NewScanner(bytes.NewReader(out))
+// parseModelsOutput parses the output of `juju models` and returns the names
+// of models starting with test- or jubilant-, plus the currently active model.
+func parseModelsOutput(output string) (models []string, current string) {
+	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
-		line := scanner.Text()
-		fields := strings.Fields(line)
+		fields := strings.Fields(scanner.Text())
 		if len(fields) == 0 {
 			continue
 		}
@@ -207,5 +177,57 @@ func listTargetModels() (models []string, current string, err error) {
 			models = append(models, name)
 		}
 	}
-	return models, current, scanner.Err()
+	return models, current
+}
+
+// seedShells writes the alias block into ~/.bashrc and ~/.zshrc, replacing any
+// existing managed block so the operation is idempotent.
+func seedShells() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	targets := []string{
+		filepath.Join(home, ".bashrc"),
+		filepath.Join(home, ".zshrc"),
+	}
+
+	for _, path := range targets {
+		if err := seedFile(path); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		fmt.Printf("seeded %s\n", path)
+	}
+	return nil
+}
+
+func seedFile(path string) error {
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	updated := replaceOrAppend(string(existing), aliasBlock)
+	return os.WriteFile(path, []byte(updated), 0644)
+}
+
+// replaceOrAppend removes any existing managed block and appends the new one.
+func replaceOrAppend(content, block string) string {
+	lines := strings.Split(content, "\n")
+	var out []string
+	skip := false
+	for _, line := range lines {
+		if strings.TrimSpace(line) == blockStart {
+			skip = true
+		}
+		if !skip {
+			out = append(out, line)
+		}
+		if skip && strings.TrimSpace(line) == blockEnd {
+			skip = false
+		}
+	}
+	result := strings.TrimRight(strings.Join(out, "\n"), "\n")
+	result += "\n" + block
+	return result
 }
