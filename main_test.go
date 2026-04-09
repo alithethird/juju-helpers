@@ -53,6 +53,26 @@ func TestParseNukeAllArgs_HelpShort(t *testing.T) {
 	}
 }
 
+func TestParseNukeAllArgs_YesShort(t *testing.T) {
+	parsed, showHelp, err := parseNukeAllArgs([]string{"-y"})
+	if err != nil || showHelp {
+		t.Fatalf("unexpected error or showHelp: err=%v showHelp=%v", err, showHelp)
+	}
+	if !parsed.yes {
+		t.Fatal("expected yes=true for -y")
+	}
+}
+
+func TestParseNukeAllArgs_YesLong(t *testing.T) {
+	parsed, showHelp, err := parseNukeAllArgs([]string{"--yes"})
+	if err != nil || showHelp {
+		t.Fatalf("unexpected error or showHelp: err=%v showHelp=%v", err, showHelp)
+	}
+	if !parsed.yes {
+		t.Fatal("expected yes=true for --yes")
+	}
+}
+
 func TestParseNukeAllArgs_UnknownFlag(t *testing.T) {
 	_, _, err := parseNukeAllArgs([]string{"--unknown"})
 	if err == nil {

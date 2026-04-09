@@ -36,10 +36,11 @@ Commands:
 }
 
 func nukeAllUsage() {
-	fmt.Println(`Usage: juju-helpers nuke-all [--include-current]
+	fmt.Println(`Usage: juju-helpers nuke-all [-y] [--include-current]
 
 Destroy all juju models whose names start with test- or jubilant-.
-The currently active model is skipped unless --include-current is given.`)
+The currently active model is skipped unless --include-current is given.
+Use -y / --yes to skip the confirmation prompt.`)
 }
 
 func main() {
@@ -66,6 +67,7 @@ func main() {
 // nukeAllArgs holds parsed flags for the nuke-all command.
 type nukeAllArgs struct {
 	includeCurrent bool
+	yes            bool
 }
 
 // parseNukeAllArgs parses flags for nuke-all. Returns (nil, true) when --help
@@ -78,6 +80,8 @@ func parseNukeAllArgs(args []string) (*nukeAllArgs, bool, error) {
 			return nil, true, nil
 		case "--include-current":
 			result.includeCurrent = true
+		case "-y", "--yes":
+			result.yes = true
 		default:
 			return nil, false, fmt.Errorf("unknown flag %q", arg)
 		}
@@ -126,14 +130,15 @@ func nukeAll(args []string) error {
 	for _, m := range models {
 		fmt.Printf("  %s\n", m)
 	}
-	fmt.Printf("\nDestroy %d model(s)? [y/N] ", len(models))
-
-	reader := bufio.NewReader(os.Stdin)
-	answer, _ := reader.ReadString('\n')
-	answer = strings.TrimSpace(strings.ToLower(answer))
-	if answer != "y" && answer != "yes" {
-		fmt.Println("aborted")
-		return nil
+	if !parsed.yes {
+		fmt.Printf("\nDestroy %d model(s)? [y/N] ", len(models))
+		reader := bufio.NewReader(os.Stdin)
+		answer, _ := reader.ReadString('\n')
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer != "y" && answer != "yes" {
+			fmt.Println("aborted")
+			return nil
+		}
 	}
 
 	var failed []string
