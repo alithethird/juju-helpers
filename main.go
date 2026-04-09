@@ -17,6 +17,7 @@ alias jss="juju status --watch 2s --relations"
 alias jm="juju models"
 alias jsc="juju switch"
 alias nuke="juju destroy-model --force --no-prompt --destroy-storage --no-wait"
+alias jh="juju-helpers"
 # end juju-helpers aliases
 `
 

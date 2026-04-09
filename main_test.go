@@ -151,6 +151,9 @@ func TestReplaceOrAppend_FreshFile(t *testing.T) {
 	if !strings.Contains(result, `alias js="juju status"`) {
 		t.Error("result should contain the js alias")
 	}
+	if !strings.Contains(result, `alias jh="juju-helpers"`) {
+		t.Error("result should contain the jh alias")
+	}
 }
 
 func TestReplaceOrAppend_Idempotent(t *testing.T) {
